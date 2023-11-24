@@ -1,0 +1,101 @@
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500&display=swap');
+
+* {
+    margin: 0;
+    padding: 0;
+    font-family: 'Open Sans', sans-serif;
+}
+
+body {
+    height: 100vh;
+  /* background: linear-gradient(120deg, #ffe53bd8, #ff2525da);*/
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column; /* Añadido para alinear verticalmente */
+}
+
+.relogio-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    text-align: center;
+}
+
+.relogio {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    height: 200px;
+    width: 550px;
+    background: transparent;
+    border-radius: 3px;
+    box-shadow: 0px 8px 10px rgba(0, 0, 0, .5);
+}
+
+.relogio div {
+    height: 170px;
+    width: 150px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    background: rgba(5, 5, 5, .9);
+    box-shadow: 5px 5px 15px rgba(0, 0, 0, .7);
+    border-radius: 7px;
+    letter-spacing: 3px;
+}
+
+.relogio span {
+    font-weight: bolder;
+    font-size: 60px;
+}
+
+.relogio span.tempo {
+    font-size: 10px;
+}
+
+/* Estilos para el texto "Dreams te cuida" */
+.dreams-text {
+    font-size: 22px; /* Tamaño de fuente */
+    color: rgb(239, 235, 235); /* Color de texto */
+    text-align: center;
+    margin-top: 10px;
+    padding: 10px;
+    background-color: rgb(215, 56, 232); /* Fondo del cuadro */
+    border-radius: 5px; /* Borde redondeado */
+    box-shadow: 0px 3px 6px rgba(0, 0, 0, 0.3); 
+}
+
+/* Estilos para el cuadro del índice UV */
+.uv-index-box {
+    font-size: 20px;
+    color: #000;
+    text-align: center;
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px solid #000;
+    background-color: rgb(250, 255, 250);
+    border-radius: 5px;
+    
+    box-shadow: 5px 5px 15px rgba(0, 0, 0, .7);
+    border-radius: 7px;
+    letter-spacing: 3px;
+}
+
+/* Estilos para el mensaje chileno */
+.uv-message-box {
+    font-size: 20px; /* Tamaño de fuente */
+    color: rgb(255, 255, 255); /* Color de texto */
+    text-align: center;
+    margin-top: 10px;
+    padding: 10px;
+    background-color: rgb(41, 77, 221); /* Fondo del cuadro */
+    border-radius: 5px; /* Borde redondeado */
+    box-shadow: 0px 3px 6px rgba(0, 0, 0, 0.3); /* Sombra */
+}
+
+
+/***Feito por Larissa V. Kich***/

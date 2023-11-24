@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es-es">
+
+<head>
+   
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.3/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+
+
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="assets/css/style.css">
+    <script src="assets/lottie.min.js"></script>
+    <script src="assets/js/script.js"></script>
+
+    <link rel="icon" href="assets\semaforo.ico" type="image/x-icon">
+    <link rel="shortcut icon" href="assets\semaforo.ico" type="image/x-icon">
+    <title>Solmaforo Dreams</title>
+
+
+</head>
+
+<body>
+
+  
+    <div class="modal fade" id="regionModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+        aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="exampleModalLabel">Elige tu región</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <select id="regionSelector" class="form-control">
+                        <option value="1">Region de Arica y Parinacota</option>
+                        <option value="2">Region de Tarapaca</option>
+                        <option value="3">Region de Antofagasta</option>
+                        <option value="4">Region de Atacama</option>
+                        <option value="5">Region de Coquimbo</option>
+                        <option value="6">Region de Valparaiso</option>
+                        <option value="7">Region Metropolitana</option>
+                        <option value="8">Region de De O'Higgins</option>
+                        <option value="9">Region del Maule</option>
+                        <option value="10">Region del Ñuble</option>
+                        <option value="11">Region del Bio-Bio</option>
+                        <option value="12">Region de la Araucania</option>
+                        <option value="13">Region de Los Rios </option>
+                        <option value="14">Region de Los Lagos</option>
+                        <option value="15">Region de Aysen </option>
+                        <option value="16">Region de Magallanes y la Antartica Chilena</option>
+                       
+                    </select>
+                </div>
+                <div class="modal-footer">
+                    <button id="confirmRegion" class="btn btn-primary">Confirmar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    </div>
+   
+    <div class="relogio-container">
+
+
+
+        <div class="dreams-text">Solmaforo Dreams
+            <span id="userRegionName"></span>
+        </div>
+
+        <div class="relogio">
+            <div>
+                <span id="horas">00</span>
+                <span class="tempo">Horas</span>
+            </div>
+
+            <div>
+                <span id="minutos">00</span>
+                <span class="tempo">Minutos</span>
+            </div>
+
+            <div>
+                <span id="segundos">00</span>
+                <span class="tempo">Segundos</span>
+            </div>
+        </div>
+
+        <div class="uv-index-box">
+            <span id="uv-index"></span>
+            <!-- Contenedor para la animación Lottie -->
+            <div id="lottieContainer" style="width: 100px; height: 100px;"></div>
+        </div>
+
+
+        <!-- Agrega la imagen justo debajo del reloj -->
+        <img src="assets\escala_1.png" id="imagenEscala" alt="Escala UV">
+        <div id="uv-message" class="uv-message-box"></div>
+
+
+    </div>
+
+
+    <!-- Mensaje de agradecimiento -->
+    <div class="footer" style="position: absolute; bottom: 0; text-align: center;">
+
+        <p> IT Dreams  , 2023: Datos aportados por <a href="https://indiceuv.cl"
+                target="_blank">indiceuv.cl</a> </p>
+        <p>datos actualizados: <span id="ultimallamada"</span> </p>
+    </div>
+
+
+
+
+
+
+</body>
+
+</html>
