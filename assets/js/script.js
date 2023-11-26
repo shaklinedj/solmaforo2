@@ -58,7 +58,7 @@ async function obtenerIndiceUV() {
 
 
     // Hacer la solicitud al archivo PHP con la región del usuario
-    const url = `tomauv.php?region=${userRegion}`;
+    const url = `api/tomauv.php?region=${userRegion}`;
     
 
 
