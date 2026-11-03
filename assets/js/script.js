@@ -62,7 +62,7 @@ const regionesCoords = {
     16: { lat: -53.1638, lon: -70.9171 }  // Magallanes (Punta Arenas)
 };
 
-// Función para consultar directamente a Open-Meteo (alta disponibilidad, gratis, sin API key)
+// 1. Consulta a Open-Meteo Weather API
 async function obtenerUVOpenMeteo(regionId) {
     const coords = regionesCoords[regionId] || regionesCoords[7];
     const urlMeteo = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&daily=uv_index_max&timezone=America%2FSantiago`;
@@ -75,30 +75,76 @@ async function obtenerUVOpenMeteo(regionId) {
     return parseFloat(data.daily.uv_index_max[0]);
 }
 
+// 2. Consulta a indiceuv.cl mediante el proxy serverless de la app
+async function obtenerUVIndiceUV(regionId) {
+    // Si corre en Vercel consulta api/tomauv (Node.js), si corre en Apache consulta api/tomauv.php
+    let url = `api/tomauv?region=${regionId}`;
+    let response = await fetch(url);
+    
+    // Si da 404 (ej. en Apache sin rewrite), prueba con .php
+    if (response.status === 404) {
+        response = await fetch(`api/tomauv.php?region=${regionId}`);
+    }
+
+    if (!response.ok) {
+        throw new Error(`indiceuv.cl status: ${response.status}`);
+    }
+    const data = await response.json();
+    if (!data || !data.data || !data.data[0] || data.data[0].max_diaria === undefined) {
+        throw new Error("Formato inválido de indiceuv.cl");
+    }
+    return parseFloat(data.data[0].max_diaria);
+}
+
+// 3. Consulta secundaria a Open-Meteo Air Quality (servidor independiente de respaldo)
+async function obtenerUVOpenMeteoSecundario(regionId) {
+    const coords = regionesCoords[regionId] || regionesCoords[7];
+    const urlMeteo = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${coords.lat}&longitude=${coords.lon}&current=uv_index&timezone=America%2FSantiago`;
+
+    const response = await fetch(urlMeteo);
+    if (!response.ok) {
+        throw new Error(`Open-Meteo Air Quality status: ${response.status}`);
+    }
+    const data = await response.json();
+    return parseFloat(data.current.uv_index);
+}
+
 async function obtenerIndiceUV() {
     const regionActiva = localStorage.getItem("userRegion") || "7";
     let uvIndexRaw = null;
+    let fuenteUsada = "";
 
-    // 1. Obtener desde Open-Meteo directamente
+    // Intento 1: Open-Meteo (Principal)
     try {
         uvIndexRaw = await obtenerUVOpenMeteo(regionActiva);
+        fuenteUsada = "Open-Meteo";
     } catch (meteoError) {
-        console.warn("Open-Meteo falló, intentando API secundaria PHP...", meteoError);
+        console.warn("Open-Meteo no respondió. Activando fallback a indiceuv.cl...", meteoError);
+    }
+
+    // Intento 2 (Fallback): indiceuv.cl (por si Open-Meteo cae o si indiceuv vuelve a estar activo)
+    if (uvIndexRaw === null || isNaN(uvIndexRaw)) {
         try {
-            const url = `api/tomauv.php?region=${regionActiva}`;
-            const response = await fetch(url);
-            if (response.ok) {
-                const data = await response.json();
-                if (data && data.data && data.data[0] && data.data[0].max_diaria !== undefined) {
-                    uvIndexRaw = parseFloat(data.data[0].max_diaria);
-                }
-            }
-        } catch (phpError) {
-            console.error("Todas las fuentes de datos fallaron:", phpError);
+            console.log("Probando con indiceuv.cl...");
+            uvIndexRaw = await obtenerUVIndiceUV(regionActiva);
+            fuenteUsada = "indiceuv.cl";
+        } catch (indiceError) {
+            console.warn("indiceuv.cl no disponible o caído.", indiceError);
         }
     }
 
-    // 2. Si no fue posible obtener datos, mostrar pantalla de error
+    // Intento 3 (Respaldo final): Servidor alternativo de radiación solar
+    if (uvIndexRaw === null || isNaN(uvIndexRaw)) {
+        try {
+            console.log("Probando con servidor secundario de Open-Meteo...");
+            uvIndexRaw = await obtenerUVOpenMeteoSecundario(regionActiva);
+            fuenteUsada = "Open-Meteo (Air Quality Backup)";
+        } catch (secError) {
+            console.error("Todas las APIs de índice UV fallaron:", secError);
+        }
+    }
+
+    // Si ninguna fuente respondió, mostrar pantalla de error
     if (uvIndexRaw === null || isNaN(uvIndexRaw)) {
         document.body.style.background = 'linear-gradient(120deg, #ffe53bd8, #ff2525da)';
         document.getElementById('uv-index').textContent = '';
@@ -115,6 +161,8 @@ async function obtenerIndiceUV() {
         });
         return;
     }
+
+    console.log(`Índice UV obtenido exitosamente desde: ${fuenteUsada} (${uvIndexRaw})`);
 
     try {
         const uvIndex = Math.round(uvIndexRaw);
@@ -167,7 +215,7 @@ async function obtenerIndiceUV() {
 
         const ultimallamadaElement = document.getElementById("ultimallamada");
         if (ultimallamadaElement) {
-            ultimallamadaElement.textContent = ultimallamada.toLocaleString();
+            ultimallamadaElement.textContent = `${ultimallamada.toLocaleString()} (${fuenteUsada})`;
         }
 
         // Cambia la animación Lottie según el nivel de UV
