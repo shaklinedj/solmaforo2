@@ -42,7 +42,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 });
 
-// Coordenadas de las 16 regiones de Chile para el fallback a Open-Meteo
+// Coordenadas de las 16 regiones de Chile
 const regionesCoords = {
     1:  { lat: -18.4783, lon: -70.3126 }, // Arica y Parinacota (Arica)
     2:  { lat: -20.2133, lon: -70.1503 }, // Tarapacá (Iquique)
@@ -62,7 +62,7 @@ const regionesCoords = {
     16: { lat: -53.1638, lon: -70.9171 }  // Magallanes (Punta Arenas)
 };
 
-// Función auxiliar para consultar Open-Meteo directamente
+// Función para consultar directamente a Open-Meteo (alta disponibilidad, gratis, sin API key)
 async function obtenerUVOpenMeteo(regionId) {
     const coords = regionesCoords[regionId] || regionesCoords[7];
     const urlMeteo = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&daily=uv_index_max&timezone=America%2FSantiago`;
@@ -79,44 +79,41 @@ async function obtenerIndiceUV() {
     const regionActiva = localStorage.getItem("userRegion") || "7";
     let uvIndexRaw = null;
 
-    // 1. Intento principal a tomauv.php
+    // 1. Obtener desde Open-Meteo directamente
     try {
-        const url = `api/tomauv.php?region=${regionActiva}`;
-        const response = await fetch(url);
-
-        if (response.ok) {
-            const data = await response.json();
-            if (data && data.data && data.data[0] && data.data[0].max_diaria !== undefined) {
-                uvIndexRaw = parseFloat(data.data[0].max_diaria);
+        uvIndexRaw = await obtenerUVOpenMeteo(regionActiva);
+    } catch (meteoError) {
+        console.warn("Open-Meteo falló, intentando API secundaria PHP...", meteoError);
+        try {
+            const url = `api/tomauv.php?region=${regionActiva}`;
+            const response = await fetch(url);
+            if (response.ok) {
+                const data = await response.json();
+                if (data && data.data && data.data[0] && data.data[0].max_diaria !== undefined) {
+                    uvIndexRaw = parseFloat(data.data[0].max_diaria);
+                }
             }
+        } catch (phpError) {
+            console.error("Todas las fuentes de datos fallaron:", phpError);
         }
-    } catch (phpError) {
-        console.warn("API principal no disponible. Intentando fallback a Open-Meteo...", phpError);
     }
 
-    // 2. Si falló la API principal o vino vacía/inválida, recurrir a Open-Meteo
+    // 2. Si no fue posible obtener datos, mostrar pantalla de error
     if (uvIndexRaw === null || isNaN(uvIndexRaw)) {
-        try {
-            console.log("Obteniendo índice UV desde Open-Meteo (fallback)...");
-            uvIndexRaw = await obtenerUVOpenMeteo(regionActiva);
-        } catch (meteoError) {
-            console.error("Error al obtener índice UV:", meteoError);
+        document.body.style.background = 'linear-gradient(120deg, #ffe53bd8, #ff2525da)';
+        document.getElementById('uv-index').textContent = '';
+        document.getElementById('uv-message').textContent = "Ups, tenemos problemas para obtener los datos solares. Intentaremos más tarde.";
 
-            document.body.style.background = 'linear-gradient(120deg, #ffe53bd8, #ff2525da)';
-            document.getElementById('uv-index').textContent = '';
-            document.getElementById('uv-message').textContent = "Ups, tenemos problemas para obtener los datos solares. Intentaremos más tarde.";
-
-            const animacionErrorContainer = document.getElementById('lottieContainer');
-            animacionErrorContainer.innerHTML = '';
-            lottie.loadAnimation({
-                container: animacionErrorContainer,
-                renderer: 'svg',
-                loop: true,
-                autoplay: true,
-                path: 'assets/error2.json'
-            });
-            return;
-        }
+        const animacionErrorContainer = document.getElementById('lottieContainer');
+        animacionErrorContainer.innerHTML = '';
+        lottie.loadAnimation({
+            container: animacionErrorContainer,
+            renderer: 'svg',
+            loop: true,
+            autoplay: true,
+            path: 'assets/error2.json'
+        });
+        return;
     }
 
     try {
