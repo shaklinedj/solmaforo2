@@ -62,26 +62,27 @@ const regionesCoords = {
     16: { lat: -53.1638, lon: -70.9171 }  // Magallanes (Punta Arenas)
 };
 
-// 1. Consulta a Open-Meteo Weather API
+// 1. Consulta a Open-Meteo Weather API (índice en tiempo real + máxima del día)
 async function obtenerUVOpenMeteo(regionId) {
     const coords = regionesCoords[regionId] || regionesCoords[7];
-    const urlMeteo = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&daily=uv_index_max&timezone=America%2FSantiago`;
+    const urlMeteo = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current=uv_index&daily=uv_index_max&timezone=America%2FSantiago`;
 
     const response = await fetch(urlMeteo);
     if (!response.ok) {
         throw new Error(`Open-Meteo status: ${response.status}`);
     }
     const data = await response.json();
-    return parseFloat(data.daily.uv_index_max[0]);
+    const currentUV = (data.current && data.current.uv_index !== undefined) ? parseFloat(data.current.uv_index) : null;
+    const maxUV = (data.daily && data.daily.uv_index_max && data.daily.uv_index_max[0] !== undefined) ? parseFloat(data.daily.uv_index_max[0]) : currentUV;
+
+    return { current: currentUV, max: maxUV };
 }
 
 // 2. Consulta a indiceuv.cl mediante el proxy serverless de la app
 async function obtenerUVIndiceUV(regionId) {
-    // Si corre en Vercel consulta api/tomauv (Node.js), si corre en Apache consulta api/tomauv.php
     let url = `api/tomauv?region=${regionId}`;
     let response = await fetch(url);
-    
-    // Si da 404 (ej. en Apache sin rewrite), prueba con .php
+
     if (response.status === 404) {
         response = await fetch(`api/tomauv.php?region=${regionId}`);
     }
@@ -93,40 +94,57 @@ async function obtenerUVIndiceUV(regionId) {
     if (!data || !data.data || !data.data[0] || data.data[0].max_diaria === undefined) {
         throw new Error("Formato inválido de indiceuv.cl");
     }
-    return parseFloat(data.data[0].max_diaria);
+    const maxVal = parseFloat(data.data[0].max_diaria);
+
+    // Si es de noche en Chile, el índice UV actual es 0
+    const ahora = new Date();
+    const hora = ahora.getHours() + ahora.getMinutes() / 60;
+    const esNoche = hora >= 20.75 || hora < 6.5;
+
+    return {
+        current: esNoche ? 0 : maxVal,
+        max: maxVal
+    };
 }
 
-// 3. Consulta secundaria a Open-Meteo Air Quality (servidor independiente de respaldo)
+// 3. Consulta secundaria a Open-Meteo Air Quality (servidor de respaldo)
 async function obtenerUVOpenMeteoSecundario(regionId) {
     const coords = regionesCoords[regionId] || regionesCoords[7];
-    const urlMeteo = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${coords.lat}&longitude=${coords.lon}&current=uv_index&timezone=America%2FSantiago`;
+    const urlMeteo = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${coords.lat}&longitude=${coords.lon}&current=uv_index&hourly=uv_index&timezone=America%2FSantiago`;
 
     const response = await fetch(urlMeteo);
     if (!response.ok) {
         throw new Error(`Open-Meteo Air Quality status: ${response.status}`);
     }
     const data = await response.json();
-    return parseFloat(data.current.uv_index);
+    const currentUV = (data.current && data.current.uv_index !== undefined) ? parseFloat(data.current.uv_index) : null;
+
+    let maxUV = currentUV;
+    if (data.hourly && Array.isArray(data.hourly.uv_index) && data.hourly.uv_index.length >= 24) {
+        maxUV = Math.max(...data.hourly.uv_index.slice(0, 24));
+    }
+
+    return { current: currentUV, max: maxUV };
 }
 
 async function obtenerIndiceUV() {
     const regionActiva = localStorage.getItem("userRegion") || "7";
-    let uvIndexRaw = null;
+    let uvData = null;
     let fuenteUsada = "";
 
-    // Intento 1: Open-Meteo (Principal)
+    // Intento 1: Open-Meteo Weather (Principal en tiempo real)
     try {
-        uvIndexRaw = await obtenerUVOpenMeteo(regionActiva);
+        uvData = await obtenerUVOpenMeteo(regionActiva);
         fuenteUsada = "Open-Meteo";
     } catch (meteoError) {
-        console.warn("Open-Meteo no respondió. Activando fallback a indiceuv.cl...", meteoError);
+        console.warn("Open-Meteo Weather no respondió. Probando con indiceuv.cl...", meteoError);
     }
 
-    // Intento 2 (Fallback): indiceuv.cl (por si Open-Meteo cae o si indiceuv vuelve a estar activo)
-    if (uvIndexRaw === null || isNaN(uvIndexRaw)) {
+    // Intento 2 (Fallback): indiceuv.cl
+    if (!uvData || uvData.current === null || isNaN(uvData.current)) {
         try {
             console.log("Probando con indiceuv.cl...");
-            uvIndexRaw = await obtenerUVIndiceUV(regionActiva);
+            uvData = await obtenerUVIndiceUV(regionActiva);
             fuenteUsada = "indiceuv.cl";
         } catch (indiceError) {
             console.warn("indiceuv.cl no disponible o caído.", indiceError);
@@ -134,18 +152,18 @@ async function obtenerIndiceUV() {
     }
 
     // Intento 3 (Respaldo final): Servidor alternativo de radiación solar
-    if (uvIndexRaw === null || isNaN(uvIndexRaw)) {
+    if (!uvData || uvData.current === null || isNaN(uvData.current)) {
         try {
             console.log("Probando con servidor secundario de Open-Meteo...");
-            uvIndexRaw = await obtenerUVOpenMeteoSecundario(regionActiva);
-            fuenteUsada = "Open-Meteo (Air Quality Backup)";
+            uvData = await obtenerUVOpenMeteoSecundario(regionActiva);
+            fuenteUsada = "Open-Meteo (Backup)";
         } catch (secError) {
             console.error("Todas las APIs de índice UV fallaron:", secError);
         }
     }
 
     // Si ninguna fuente respondió, mostrar pantalla de error
-    if (uvIndexRaw === null || isNaN(uvIndexRaw)) {
+    if (!uvData || uvData.current === null || isNaN(uvData.current)) {
         document.body.style.background = 'linear-gradient(120deg, #ffe53bd8, #ff2525da)';
         document.getElementById('uv-index').textContent = '';
         document.getElementById('uv-message').textContent = "Ups, tenemos problemas para obtener los datos solares. Intentaremos más tarde.";
@@ -162,34 +180,50 @@ async function obtenerIndiceUV() {
         return;
     }
 
-    console.log(`Índice UV obtenido exitosamente desde: ${fuenteUsada} (${uvIndexRaw})`);
+    // Validación astronómica: En la noche (entre ~20:45 y 06:30) el índice UV es físicamente 0
+    const ahora = new Date();
+    const horaDecimal = ahora.getHours() + ahora.getMinutes() / 60;
+    const esDeNoche = horaDecimal >= 20.75 || horaDecimal < 6.5;
+
+    let uvIndexRaw = uvData.current;
+    if (esDeNoche || uvIndexRaw < 0.1) {
+        uvIndexRaw = 0;
+    }
+
+    const uvIndex = Math.round(uvIndexRaw);
+    const maxDiaria = uvData.max !== null ? Math.round(uvData.max) : uvIndex;
+    ultimallamada = new Date();
+
+    console.log(`Índice UV actual: ${uvIndexRaw.toFixed(1)} (Max hoy: ${maxDiaria}) desde ${fuenteUsada}`);
 
     try {
-        const uvIndex = Math.round(uvIndexRaw);
-        ultimallamada = new Date();
-
-        // Definir colores según los rangos de índice UV
+        // Colores según los rangos estándar de índice UV (OMS)
         const uvColors = {
-            'Bajo': '#2EEA1D',
-            'Moderado': 'yellow',
-            'Alto': '#EF6C00',
-            'Muy Alto': '#B71C1C',
-            'Extremo': '#6A1B9A',
+            'Noche': '#2EEA1D',    // Verde suave
+            'Bajo': '#2EEA1D',     // Verde
+            'Moderado': '#FFD600', // Amarillo
+            'Alto': '#EF6C00',     // Naranja
+            'Muy Alto': '#B71C1C', // Rojo
+            'Extremo': '#6A1B9A',  // Morado
         };
 
         const mensajesChilenos = {
+            'Noche': '🌙 Es de noche. En este momento la radiación ultravioleta es nula (0). No hay riesgo de exposición solar. ¡Que tengas un buen descanso! ✨',
             'Bajo': 'El índice UV es bajo hoy. Puedes permanecer al aire libre sin riesgo, pero es importante que te protejas si tu piel es muy sensible. ☀️😎',
             'Moderado': 'Hoy el índice UV es moderado. Recuerda usar protector solar y mantenerte a la sombra entre las 11:00 y las 16:00 horas. Viste ropa de manga larga, pantalón largo, zapatos cerrados, sombrero o casco de ala ancha y gafas con filtro UV-A y UV-B. Utiliza un bloqueador solar de amplio espectro (UVA-A - UV-B FP 30) para proteger tu piel. ☀️🧴🕶️',
             'Alto': 'El índice UV es alto hoy. Protégete del sol y evita permanecer al aire libre entre las 11:00 y las 16:00 horas. Es imprescindible usar ropa de manga larga con tela de trama cerrada, pantalón largo, zapatos, casco o sombrero de ala ancha y pañuelo legionario. Además, utiliza gafas con filtro UV-A y UV-B, y bloqueador solar de amplio espectro (UVA-A - UV-B FP 30). ☀️🧴🕶️👒',
             'Muy Alto': 'Hoy la radiación UV es muy alta. No olvides usar protector solar y buscar sombra. Evita la exposición prolongada al sol, especialmente entre las 10:00 y las 16:00 horas. Viste ropa de manga larga, pantalones largos, un sombrero de ala ancha y gafas de sol con filtro UV-A y UV-B. Aplica generosamente bloqueador solar de amplio espectro (UVA-A - UV-B FP 30) en todas las áreas expuestas de tu piel y no olvides proteger tus labios con un bálsamo labial con protector solar. ☀️🧴🕶️👒👄',
-            'Extremo': '\u26A0\uFE0F \u26A0\uFE0F  ¡Cuidado! El índice UV es extremo hoy. Evita la exposición al sol sin protección. Es peligroso estar al aire libre en este nivel de radiación ultravioleta. Permanece en interiores si es posible. Si debes salir, usa ropa de manga larga, pantalón largo, un sombrero de ala ancha y gafas de sol con filtro UV-A y UV-B. Aplica una cantidad abundante de bloqueador solar de amplio espectro (UVA-A - UV-B FP 50 o superior) en todas las áreas expuestas de tu piel y reaplica cada pocas horas. Busca sombra y evita la exposición directa al sol. Mantente hidratado bebiendo agua regularmente. ☀️🚫🕶️👒💧'
+            'Extremo': '⚠️ ⚠️ ¡Cuidado! El índice UV es extremo hoy. Evita la exposición al sol sin protección. Es peligroso estar al aire libre en este nivel de radiación ultravioleta. Permanece en interiores si es posible. Si debes salir, usa ropa de manga larga, pantalón largo, un sombrero de ala ancha y gafas de sol con filtro UV-A y UV-B. Aplica una cantidad abundante de bloqueador solar de amplio espectro (UVA-A - UV-B FP 50 o superior) en todas las áreas expuestas de tu piel y reaplica cada pocas horas. Busca sombra y evita la exposición directa al sol. Mantente hidratado bebiendo agua regularmente. ☀️🚫🕶️👒💧'
         };
 
-        // Determinar el color de fondo según el índice UV
+        // Determinar estado, color y mensaje
         let backgroundColor = '#fff';
         let mensajeChileno = 'Normal';
 
-        if (uvIndex >= 0 && uvIndex < 3) {
+        if (esDeNoche && uvIndex === 0) {
+            backgroundColor = uvColors['Noche'];
+            mensajeChileno = mensajesChilenos['Noche'];
+        } else if (uvIndex >= 0 && uvIndex < 3) {
             backgroundColor = uvColors['Bajo'];
             mensajeChileno = mensajesChilenos['Bajo'];
         } else if (uvIndex >= 3 && uvIndex < 6) {
@@ -208,23 +242,20 @@ async function obtenerIndiceUV() {
 
         document.body.style.backgroundColor = backgroundColor;
 
-        // Actualiza el índice UV en el cuadro
-        document.getElementById('uv-index').textContent = uvIndex.toFixed(0);
+        // Actualiza el índice UV en el cuadro (valor actual en tiempo real)
+        document.getElementById('uv-index').textContent = uvIndex.toString();
 
         document.getElementById('uv-message').textContent = mensajeChileno;
 
+        // Mostrar hora y máxima pronosticada en el footer
         const ultimallamadaElement = document.getElementById("ultimallamada");
         if (ultimallamadaElement) {
-            ultimallamadaElement.textContent = `${ultimallamada.toLocaleString()} (${fuenteUsada})`;
+            const horaStr = ultimallamada.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            ultimallamadaElement.textContent = `${horaStr} (Máx. hoy: ${maxDiaria})`;
         }
 
-        // Cambia la animación Lottie según el nivel de UV
-        let lottieFileName;
-        if (uvIndex >= 0 && uvIndex <= 11) {
-            lottieFileName = `assets/uv${Math.floor(uvIndex)}.json`;
-        } else {
-            lottieFileName = 'assets/uv0.json';
-        }
+        // Animación Lottie según nivel UV actual
+        let lottieFileName = (uvIndex >= 0 && uvIndex <= 11) ? `assets/uv${uvIndex}.json` : 'assets/uv0.json';
 
         const animationContainer = document.getElementById('lottieContainer');
         animationContainer.innerHTML = '';
@@ -242,7 +273,9 @@ async function obtenerIndiceUV() {
 }
 
 let lastApiCallTime = 0;
-const apiCallInterval = 60000;
+// Intervalo de refresco: cada 15 minutos se actualiza automáticamente día y noche
+const apiCallInterval = 15 * 60 * 1000;
+
 async function updateTime() {
     const horas = document.getElementById('horas');
     const minutos = document.getElementById('minutos');
@@ -261,18 +294,16 @@ async function updateTime() {
     minutos.textContent = min;
     segundos.textContent = s;
 
-    const currentTime = `${hr}:${min}`;
-    const uvHours = ['08:00', '10:00', '12:00', '13:06', '16:00', '18:00'];
-    if (uvHours.includes(currentTime) && (Date.now() - lastApiCallTime >= apiCallInterval)) {
+    // Se actualiza periódicamente cada 15 minutos
+    if (Date.now() - lastApiCallTime >= apiCallInterval) {
         obtenerIndiceUV();
         lastApiCallTime = Date.now();
     }
 }
 
-// Llama a obtenerIndiceUV al inicio para obtener el primer resultado de la API
+// Carga inicial al abrir la página
 obtenerIndiceUV();
-
 lastApiCallTime = Date.now();
 
-// Llama a updateTime cada segundo para actualizar la hora
+// Actualiza el reloj cada segundo
 setInterval(updateTime, 1000);
